@@ -1,0 +1,718 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>智能污衣籃</title>
+    <!-- 引入 Tailwind CSS 以實現專業且整潔的 UI 設計 -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- 引入 TensorFlow.js 核心與模型 (提供機器學習功能) -->
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/mobilenet"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/knn-classifier"></script>
+    
+    <style>
+        /* 自訂樣式，防止在手機或平板長按按鈕時反白文字或觸發選單 */
+        .no-select {
+            -webkit-user-select: none;
+            -moz-user-select: none;
+            -ms-user-select: none;
+            user-select: none;
+            touch-action: manipulation;
+        }
+        /* 鏡頭水平翻轉效果 */
+        .flip-h {
+            transform: scaleX(-1);
+        }
+        /* 美化捲動條 */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #f1f1f1; 
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #cbd5e1; 
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8; 
+        }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-800 font-sans min-h-screen">
+
+    <!-- 頂部標題與連接區域 -->
+    <header class="bg-white shadow-sm py-6 mb-6">
+        <h1 class="text-4xl font-extrabold text-center text-indigo-600 mb-6 tracking-wide">智能污衣籃</h1>
+        <div class="flex justify-center gap-6">
+            <button id="btnConnectA" class="px-6 py-3 bg-blue-500 hover:bg-blue-600 text-white font-bold rounded-full shadow-md transition-all flex items-center gap-2">
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor" viewBox="0 0 16 16"><path fill-rule="evenodd" d="M6.545 1.058a2 2 0 0 1 2.91 0l5.485 5.485a2 2 0 0 1 0 2.91l-5.485 5.485a2 2 0 0 1-2.91 0L1.06 9.453a2 2 0 0 1 0-2.91l5.485-5.485zM8 2.473L2.473 8 8 13.527 13.527 8 8 2.473z"/></svg>
+                連接 Microbit A
+            </button>
+            <button id="btnConnectB" class="px-6 py-3 bg-teal-500 hover:bg-teal-600 text-white font-bold rounded-full shadow-md transition-all flex items-center gap-2">
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor" viewBox="0 0 16 16"><path fill-rule="evenodd" d="M6.545 1.058a2 2 0 0 1 2.91 0l5.485 5.485a2 2 0 0 1 0 2.91l-5.485 5.485a2 2 0 0 1-2.91 0L1.06 9.453a2 2 0 0 1 0-2.91l5.485-5.485zM8 2.473L2.473 8 8 13.527 13.527 8 8 2.473z"/></svg>
+                連接 Microbit B
+            </button>
+        </div>
+    </header>
+
+    <!-- 改為 4 欄格線佈局，左中右比例為 1 : 2 : 1 -->
+    <main class="max-w-[96rem] mx-auto px-4 pb-12 grid grid-cols-1 lg:grid-cols-4 gap-6">
+        
+        <!-- 左側面板：列表與發送狀態列 (佔 1 欄) -->
+        <div class="col-span-1 flex flex-col gap-6">
+            <!-- 資訊列表 -->
+            <div class="bg-white rounded-xl shadow-md p-5 border border-slate-200">
+                <h2 class="text-xl font-bold text-slate-700 mb-4 border-b pb-2">AI 學習與狀態</h2>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left">
+                        <thead>
+                            <tr class="text-slate-500 text-sm">
+                                <th class="pb-3">類別</th>
+                                <th class="pb-3 text-center">相似度</th>
+                                <th class="pb-3 text-center">學習數量</th>
+                            </tr>
+                        </thead>
+                        <tbody id="classTableBody" class="text-sm font-medium">
+                            <!-- 透過 JS 動態產生 -->
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- 新增：儲存與讀取學習模型按鈕 -->
+                <div class="mt-4 flex gap-3">
+                    <button id="btnDownload" class="flex-1 px-4 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-600 font-bold rounded-lg transition-colors text-sm flex items-center justify-center gap-1 border border-indigo-200">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path d="M.5 9.9a.5.5 0 0 1 .5.5v2.5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2.5a.5.5 0 0 1 1 0v2.5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2v-2.5a.5.5 0 0 1 .5-.5z"/><path d="M7.646 11.854a.5.5 0 0 0 .708 0l3-3a.5.5 0 0 0-.708-.708L8.5 10.293V1.5a.5.5 0 0 0-1 0v8.793L5.354 8.146a.5.5 0 1 0-.708.708l3 3z"/></svg>
+                        下載學習結果
+                    </button>
+                    <button id="btnUpload" class="flex-1 px-4 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-600 font-bold rounded-lg transition-colors text-sm flex items-center justify-center gap-1 border border-emerald-200">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path d="M.5 9.9a.5.5 0 0 1 .5.5v2.5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2.5a.5.5 0 0 1 1 0v2.5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2v-2.5a.5.5 0 0 1 .5-.5z"/><path d="M7.646 4.146a.5.5 0 0 1 .708 0l3 3a.5.5 0 0 1-.708.708L8.5 5.707V14.5a.5.5 0 0 1-1 0V5.707L5.354 7.854a.5.5 0 1 1-.708-.708l3-3z"/></svg>
+                        上載學習結果
+                    </button>
+                    <!-- 隱藏的檔案上傳輸入框 -->
+                    <input type="file" id="uploadInput" accept=".json" class="hidden">
+                </div>
+            </div>
+
+            <!-- 傳輸狀態列 (Logs) 改為固定高度 h-64 (約256px) -->
+            <div class="bg-slate-800 rounded-xl shadow-md p-5 flex flex-col h-64">
+                <h2 class="text-lg font-bold text-slate-200 mb-3 border-b border-slate-600 pb-2">藍芽發送紀錄</h2>
+                <div id="logContainer" class="flex-grow overflow-y-auto font-mono text-xs text-green-400 flex flex-col gap-1">
+                    <div class="text-slate-400">系統已就緒，等待連接...</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 中間面板：鏡頭與控制區域 (佔 2 欄) -->
+        <div class="col-span-1 lg:col-span-2 flex flex-col gap-4">
+            
+            <!-- 攝影機顯示區 -->
+            <div class="relative bg-black rounded-xl overflow-hidden shadow-lg aspect-video flex justify-center items-center">
+                <video id="webcam" autoplay playsinline class="w-full h-full object-cover flip-h"></video>
+                <!-- 載入中遮罩 -->
+                <div id="loadingOverlay" class="absolute inset-0 bg-black/70 flex flex-col items-center justify-center text-white z-10">
+                    <svg class="animate-spin h-10 w-10 text-indigo-500 mb-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    <p class="text-lg font-bold tracking-widest">AI 模型載入中...</p>
+                </div>
+            </div>
+
+            <!-- 鏡頭主要控制列 -->
+            <div class="flex justify-between items-center bg-white p-4 rounded-xl shadow-sm border border-slate-200">
+                <button id="btnFlipCamera" class="px-5 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 font-semibold rounded-lg transition-colors flex items-center gap-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path d="M11.534 7h3.932a.25.25 0 0 1 .192.41l-1.966 2.36a.25.25 0 0 1-.384 0l-1.966-2.36a.25.25 0 0 1 .192-.41zm-11 2h3.932a.25.25 0 0 0 .192-.41L2.692 6.23a.25.25 0 0 0-.384 0L.342 8.59A.25.25 0 0 0 .534 9z"/><path fill-rule="evenodd" d="M8 3c-1.552 0-2.94.707-3.857 1.818a.5.5 0 1 1-.771-.636A6.002 6.002 0 0 1 13.917 7H12.9A5.002 5.002 0 0 0 8 3zM3.1 9a5.002 5.002 0 0 0 8.757 2.182.5.5 0 1 1 .771.636A6.002 6.002 0 0 1 2.083 9H3.1z"/></svg>
+                    水平翻轉影像
+                </button>
+                <button id="btnTogglePredict" disabled class="px-8 py-3 bg-indigo-100 text-indigo-400 font-bold rounded-lg shadow-sm transition-all cursor-not-allowed">
+                    開始辨認
+                </button>
+            </div>
+
+            <!-- 學習按鈕區域 -->
+            <div class="bg-white p-5 rounded-xl shadow-sm border border-slate-200">
+                <h3 class="text-sm font-bold text-slate-500 mb-3 uppercase tracking-wider text-center">長按按鈕進行學習 (最高50張/類別)</h3>
+                <div class="flex flex-wrap gap-3 justify-center" id="trainingButtonsContainer">
+                    <!-- 透過 JS 動態產生學習按鈕 -->
+                </div>
+            </div>
+
+        </div>
+
+        <!-- 右側面板：污衣籃容量與接收紀錄 (佔 1 欄) -->
+        <div class="col-span-1 flex flex-col gap-6">
+            <!-- 污衣籃狀態列表 -->
+            <div class="bg-white rounded-xl shadow-md p-5 border border-slate-200">
+                <h2 class="text-xl font-bold text-slate-700 mb-4 border-b pb-2">污衣籃容量 (超聲波)</h2>
+                <div class="flex flex-col gap-5">
+                    
+                    <!-- U1 深色衫籃 -->
+                    <div>
+                        <div class="flex justify-between text-sm font-bold text-slate-600 mb-1">
+                            <span>深色衫籃 (U1)</span>
+                        </div>
+                        <div class="w-full bg-slate-200 h-6 rounded-full overflow-hidden relative shadow-inner">
+                            <div id="basket-u1-fill" class="h-full bg-green-400 w-[10%] transition-all duration-500"></div>
+                            <span id="basket-u1-text" class="absolute inset-0 flex items-center justify-center text-xs font-bold text-slate-700">全空</span>
+                        </div>
+                    </div>
+
+                    <!-- U2 淺色衫籃 -->
+                    <div>
+                        <div class="flex justify-between text-sm font-bold text-slate-600 mb-1">
+                            <span>淺色衫籃 (U2)</span>
+                        </div>
+                        <div class="w-full bg-slate-200 h-6 rounded-full overflow-hidden relative shadow-inner">
+                            <div id="basket-u2-fill" class="h-full bg-green-400 w-[10%] transition-all duration-500"></div>
+                            <span id="basket-u2-text" class="absolute inset-0 flex items-center justify-center text-xs font-bold text-slate-700">全空</span>
+                        </div>
+                    </div>
+
+                    <!-- U3 內衣褲籃 -->
+                    <div>
+                        <div class="flex justify-between text-sm font-bold text-slate-600 mb-1">
+                            <span>內衣褲籃 (U3)</span>
+                        </div>
+                        <div class="w-full bg-slate-200 h-6 rounded-full overflow-hidden relative shadow-inner">
+                            <div id="basket-u3-fill" class="h-full bg-green-400 w-[10%] transition-all duration-500"></div>
+                            <span id="basket-u3-text" class="absolute inset-0 flex items-center justify-center text-xs font-bold text-slate-700">全空</span>
+                        </div>
+                    </div>
+
+                    <!-- U4 襪籃 -->
+                    <div>
+                        <div class="flex justify-between text-sm font-bold text-slate-600 mb-1">
+                            <span>襪籃 (U4)</span>
+                        </div>
+                        <div class="w-full bg-slate-200 h-6 rounded-full overflow-hidden relative shadow-inner">
+                            <div id="basket-u4-fill" class="h-full bg-green-400 w-[10%] transition-all duration-500"></div>
+                            <span id="basket-u4-text" class="absolute inset-0 flex items-center justify-center text-xs font-bold text-slate-700">全空</span>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+
+            <!-- 傳輸接收狀態列 (RX Logs) 改為固定高度 h-64 -->
+            <div class="bg-slate-800 rounded-xl shadow-md p-5 flex flex-col h-64">
+                <h2 class="text-lg font-bold text-slate-200 mb-3 border-b border-slate-600 pb-2">藍芽接收紀錄</h2>
+                <div id="rxLogContainer" class="flex-grow overflow-y-auto font-mono text-xs text-blue-300 flex flex-col gap-1">
+                    <div class="text-slate-400">等待接收感測器資料...</div>
+                </div>
+            </div>
+        </div>
+
+    </main>
+
+    <script>
+        /**
+         * 系統核心設定與資料結構
+         */
+        const CLASSES = [
+            { id: 0, name: '深色衫', command: '1\n', color: 'bg-gray-800' },
+            { id: 1, name: '淺色衫', command: '2\n', color: 'bg-yellow-100' },
+            { id: 2, name: '內衣褲', command: '3\n', color: 'bg-pink-300' },
+            { id: 3, name: '襪', command: '4\n', color: 'bg-orange-400' },
+            { id: 4, name: '背景', command: 'BG\n', color: 'bg-slate-400' }
+        ];
+        
+        const MAX_SAMPLES = 50;
+        const PREDICT_THRESHOLD = 0.65; // 相似度大於 65% 才判定為該類別
+        const COOLDOWN_MS = 7000;       // 發送至 Micro:bit 的冷卻時間 (7秒)
+
+        // 狀態變數
+        let classData = CLASSES.map(c => ({ ...c, count: 0, similarity: 0 }));
+        let isPredicting = false;
+        let lastSendTime = 0;
+        let trainInterval = null;
+
+        // ML 模型
+        let classifier;
+        let mobilenetModule;
+
+        // 藍芽設備儲存 (使用 Nordic UART Service 規格)
+        const NUS_SERVICE_UUID = '6e400001-b5a3-f393-e0a9-e50e24dcca9e';
+        const NUS_RX_CHARACTERISTIC_UUID = '6e400003-b5a3-f393-e0a9-e50e24dcca9e'; // Microbit RX (網頁寫入 TX)
+        const NUS_TX_CHARACTERISTIC_UUID = '6e400002-b5a3-f393-e0a9-e50e24dcca9e'; // Microbit TX (網頁接收 RX)
+        
+        let microbitA_Char = null;
+        let microbitB_Char = null;
+
+        // 獨立接收緩衝區 (避免資料分段抵達)
+        let rxBufferA = "";
+        let rxBufferB = "";
+
+        // DOM 元素
+        const videoElement = document.getElementById('webcam');
+        const classTableBody = document.getElementById('classTableBody');
+        const trainingButtonsContainer = document.getElementById('trainingButtonsContainer');
+        const logContainer = document.getElementById('logContainer');
+        const rxLogContainer = document.getElementById('rxLogContainer');
+        const btnTogglePredict = document.getElementById('btnTogglePredict');
+        const loadingOverlay = document.getElementById('loadingOverlay');
+
+        /**
+         * 初始化介面 (生成表格與按鈕)
+         */
+        function initUI() {
+            // 生成表格
+            classTableBody.innerHTML = '';
+            classData.forEach((c) => {
+                classTableBody.innerHTML += `
+                    <tr class="border-b border-slate-100 hover:bg-slate-50 transition-colors">
+                        <td class="py-3 flex items-center gap-2">
+                            <span class="w-3 h-3 rounded-full ${c.color} border border-slate-300"></span>
+                            ${c.name}
+                        </td>
+                        <td class="py-3 text-center">
+                            <span id="sim-${c.id}" class="px-2 py-1 bg-slate-100 rounded-md text-slate-600 font-mono">0%</span>
+                        </td>
+                        <td class="py-3 text-center">
+                            <span id="count-${c.id}" class="px-2 py-1 bg-blue-50 text-blue-600 rounded-md font-mono">0/50</span>
+                        </td>
+                    </tr>
+                `;
+            });
+
+            // 生成學習按鈕
+            trainingButtonsContainer.innerHTML = '';
+            classData.forEach((c) => {
+                const btn = document.createElement('button');
+                btn.className = `no-select flex-1 min-w-[100px] px-3 py-3 rounded-lg text-white font-bold shadow-md transition-transform active:scale-95 ${c.color} ${c.color === 'bg-yellow-100' ? 'text-slate-700' : ''}`;
+                btn.innerText = `學習${c.name}`;
+                
+                // 綁定長按事件 (支援滑鼠與觸控)
+                const startTrain = (e) => { e.preventDefault(); startTrainingHandler(c.id); };
+                const stopTrain = (e) => { e.preventDefault(); stopTrainingHandler(); };
+                
+                btn.addEventListener('mousedown', startTrain);
+                btn.addEventListener('touchstart', startTrain, {passive: false});
+                
+                btn.addEventListener('mouseup', stopTrain);
+                btn.addEventListener('mouseleave', stopTrain);
+                btn.addEventListener('touchend', stopTrain);
+                
+                trainingButtonsContainer.appendChild(btn);
+            });
+        }
+
+        /**
+         * 更新單一類別的 UI (數量與相似度)
+         */
+        function updateClassUI(id) {
+            document.getElementById(`count-${id}`).innerText = `${classData[id].count}/50`;
+            document.getElementById(`sim-${id}`).innerText = `${Math.round(classData[id].similarity * 100)}%`;
+            
+            // 標示出目前最高相似度的項目
+            classData.forEach(c => {
+                const simBadge = document.getElementById(`sim-${c.id}`);
+                if (c.id === id && classData[id].similarity > PREDICT_THRESHOLD) {
+                    simBadge.classList.replace('bg-slate-100', 'bg-green-100');
+                    simBadge.classList.replace('text-slate-600', 'text-green-700');
+                } else {
+                    simBadge.classList.replace('bg-green-100', 'bg-slate-100');
+                    simBadge.classList.replace('text-green-700', 'text-slate-600');
+                }
+            });
+        }
+
+        /**
+         * 日誌輸出 (發送/系統)
+         */
+        function logMsg(msg, isSystem = false) {
+            const time = new Date().toLocaleTimeString('zh-TW', { hour12: false });
+            const div = document.createElement('div');
+            div.innerText = `[${time}] ${msg}`;
+            if (isSystem) div.classList.add('text-green-300');
+            
+            logContainer.appendChild(div);
+            
+            // 限制最多顯示 40 行，超過則移除最舊的訊息
+            if (logContainer.children.length > 40) {
+                logContainer.removeChild(logContainer.firstChild);
+            }
+            logContainer.scrollTop = logContainer.scrollHeight;
+        }
+
+        /**
+         * 日誌輸出 (接收)
+         */
+        function logRxMsg(msg) {
+            const time = new Date().toLocaleTimeString('zh-TW', { hour12: false });
+            const div = document.createElement('div');
+            div.innerText = `[${time}] ${msg}`;
+            
+            rxLogContainer.appendChild(div);
+            
+            // 限制最多顯示 40 行，超過則移除最舊的訊息
+            if (rxLogContainer.children.length > 40) {
+                rxLogContainer.removeChild(rxLogContainer.firstChild);
+            }
+            rxLogContainer.scrollTop = rxLogContainer.scrollHeight;
+        }
+
+        /**
+         * 攝影機設定
+         */
+        async function setupWebcam() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { facingMode: 'user', width: 640, height: 480 }, 
+                    audio: false 
+                });
+                videoElement.srcObject = stream;
+                return new Promise((resolve) => {
+                    videoElement.onloadedmetadata = () => { resolve(); };
+                });
+            } catch (err) {
+                alert("無法存取攝影機，請允許權限！");
+                console.error(err);
+            }
+        }
+
+        // 水平翻轉控制
+        document.getElementById('btnFlipCamera').addEventListener('click', () => {
+            videoElement.classList.toggle('flip-h');
+        });
+
+        /**
+         * 機器學習初始化
+         */
+        async function initML() {
+            classifier = knnClassifier.create();
+            mobilenetModule = await mobilenet.load({ version: 2, alpha: 1.0 });
+            
+            // 模型與攝影機都載入完畢
+            loadingOverlay.classList.add('hidden');
+            logMsg('✅ AI模型載入完成。準備就緒。', true);
+
+            // 啟用辨認按鈕
+            btnTogglePredict.disabled = false;
+            btnTogglePredict.classList.replace('bg-indigo-100', 'bg-indigo-600');
+            btnTogglePredict.classList.replace('text-indigo-400', 'text-white');
+            btnTogglePredict.classList.remove('cursor-not-allowed');
+            btnTogglePredict.classList.add('hover:bg-indigo-700');
+        }
+
+        /**
+         * 訓練(學習)邏輯
+         */
+        function startTrainingHandler(classId) {
+            if (trainInterval) return;
+            if (classData[classId].count >= MAX_SAMPLES) return;
+
+            const addFrame = () => {
+                if (classData[classId].count >= MAX_SAMPLES) {
+                    stopTrainingHandler();
+                    return;
+                }
+                // 擷取影像特徵並加入分類器
+                const img = tf.browser.fromPixels(videoElement);
+                const logits = mobilenetModule.infer(img, true);
+                classifier.addExample(logits, classId);
+                
+                classData[classId].count++;
+                updateClassUI(classId);
+                img.dispose();
+            };
+
+            addFrame(); // 立即拍一張
+            trainInterval = setInterval(addFrame, 100); // 每 0.1 秒拍一張
+        }
+
+        function stopTrainingHandler() {
+            if (trainInterval) {
+                clearInterval(trainInterval);
+                trainInterval = null;
+            }
+        }
+
+        /**
+         * 辨認邏輯與發送判斷
+         */
+        async function predictLoop() {
+            if (!isPredicting) return;
+
+            if (classifier.getNumClasses() > 0) {
+                const img = tf.browser.fromPixels(videoElement);
+                const logits = mobilenetModule.infer(img, true);
+                const res = await classifier.predictClass(logits);
+                
+                // 重置所有相似度
+                classData.forEach(c => c.similarity = 0);
+                
+                // 更新當前辨認結果的相似度
+                for (const [id, conf] of Object.entries(res.confidences)) {
+                    classData[id].similarity = conf;
+                    updateClassUI(id);
+                }
+
+                // 判斷是否發送訊號
+                const bestClassId = res.label;
+                const bestConf = res.confidences[bestClassId];
+
+                if (bestConf >= PREDICT_THRESHOLD) {
+                    const now = Date.now();
+                    // 檢查 7 秒 Cooldown
+                    if (now - lastSendTime > COOLDOWN_MS) {
+                        const targetClass = classData[bestClassId];
+                        sendToMicrobits(targetClass.command, targetClass.name);
+                        lastSendTime = now;
+                    }
+                }
+                img.dispose();
+            }
+
+            // 使用 requestAnimationFrame 維持迴圈高效運行
+            requestAnimationFrame(predictLoop);
+        }
+
+        // 啟動/停止辨認按鈕
+        btnTogglePredict.addEventListener('click', () => {
+            if (classifier.getNumClasses() === 0) {
+                alert("請至少先學習一種物品的相片！");
+                return;
+            }
+
+            isPredicting = !isPredicting;
+            if (isPredicting) {
+                btnTogglePredict.innerText = "停止辨認";
+                btnTogglePredict.classList.replace('bg-indigo-600', 'bg-red-500');
+                btnTogglePredict.classList.replace('hover:bg-indigo-700', 'hover:bg-red-600');
+                logMsg('▶️ 開始影像辨認...', true);
+                predictLoop();
+            } else {
+                btnTogglePredict.innerText = "開始辨認";
+                btnTogglePredict.classList.replace('bg-red-500', 'bg-indigo-600');
+                btnTogglePredict.classList.replace('hover:bg-red-600', 'hover:bg-indigo-700');
+                logMsg('⏹️ 停止影像辨認。', true);
+            }
+        });
+
+        /**
+         * 藍芽通訊邏輯 (傳送與接收)
+         */
+        async function connectBluetooth(deviceLabel) {
+            try {
+                const device = await navigator.bluetooth.requestDevice({
+                    acceptAllDevices: true,
+                    optionalServices: [NUS_SERVICE_UUID]
+                });
+                const server = await device.gatt.connect();
+                const service = await server.getPrimaryService(NUS_SERVICE_UUID);
+                
+                // 取得發送用 Characteristic (Microbit 的 RX)
+                const rxChar = await service.getCharacteristic(NUS_RX_CHARACTERISTIC_UUID);
+                
+                // 取得接收用 Characteristic (Microbit 的 TX)
+                const txChar = await service.getCharacteristic(NUS_TX_CHARACTERISTIC_UUID);
+                await txChar.startNotifications();
+                txChar.addEventListener('characteristicvaluechanged', (e) => handleReceiveData(e, deviceLabel));
+                
+                logMsg(`✅ 成功連接至 ${deviceLabel} (${device.name})`, true);
+                return rxChar;
+            } catch (error) {
+                logMsg(`❌ 連接 ${deviceLabel} 失敗: ${error.message}`, true);
+                return null;
+            }
+        }
+
+        // 處理藍芽接收資料
+        function handleReceiveData(event, deviceLabel) {
+            const value = new TextDecoder().decode(event.target.value);
+            
+            // 將資料放入對應設備的緩衝區
+            if (deviceLabel === 'Microbit A') {
+                rxBufferA += value;
+                rxBufferA = processRxBuffer(rxBufferA, deviceLabel);
+            } else {
+                rxBufferB += value;
+                rxBufferB = processRxBuffer(rxBufferB, deviceLabel);
+            }
+        }
+
+        // 處理緩衝區字串 (解析換行)
+        function processRxBuffer(buffer, deviceLabel) {
+            // 切割換行符號 (\n 或 \r\n)
+            let lines = buffer.split(/\r?\n/);
+            
+            // 保留最後一個片段 (如果沒有以換行結尾，代表字串還沒傳完)
+            let remainingBuffer = lines.pop(); 
+            
+            for (let line of lines) {
+                line = line.trim();
+                if (!line) continue;
+                
+                logRxMsg(`[${deviceLabel}] 收到: ${line}`);
+                updateBasketStatus(line);
+            }
+            
+            return remainingBuffer;
+        }
+
+        // 更新污衣籃 UI 狀態
+        function updateBasketStatus(cmd) {
+            // 透過正則表達式尋找如 U1F, U2M, U3E 等格式
+            const match = cmd.match(/U([1-4])([FME])/);
+            if (match) {
+                const basketId = match[1]; // 1, 2, 3, 4
+                const status = match[2];   // F, M, E
+                
+                const fillEl = document.getElementById(`basket-u${basketId}-fill`);
+                const textEl = document.getElementById(`basket-u${basketId}-text`);
+                
+                if (!fillEl || !textEl) return;
+                
+                // 重設狀態類別
+                fillEl.className = 'h-full transition-all duration-500 ';
+                
+                if (status === 'F') {
+                    fillEl.classList.add('bg-red-500', 'w-full');
+                    textEl.innerText = '已滿';
+                } else if (status === 'M') {
+                    fillEl.classList.add('bg-yellow-400', 'w-1/2');
+                    textEl.innerText = '半滿';
+                } else if (status === 'E') {
+                    fillEl.classList.add('bg-green-400', 'w-[10%]');
+                    textEl.innerText = '全空';
+                }
+            }
+        }
+
+        document.getElementById('btnConnectA').addEventListener('click', async () => {
+            microbitA_Char = await connectBluetooth('Microbit A');
+            if(microbitA_Char) document.getElementById('btnConnectA').classList.replace('bg-blue-500', 'bg-green-600');
+        });
+
+        document.getElementById('btnConnectB').addEventListener('click', async () => {
+            microbitB_Char = await connectBluetooth('Microbit B');
+            if(microbitB_Char) document.getElementById('btnConnectB').classList.replace('bg-teal-500', 'bg-green-600');
+        });
+
+        function sendToMicrobits(commandStr, className) {
+            // 將字串轉為 Uint8Array
+            const encoder = new TextEncoder();
+            const data = encoder.encode(commandStr);
+            
+            let sent = false;
+
+            if (microbitA_Char) {
+                microbitA_Char.writeValue(data).catch(e => console.error("A寫入失敗", e));
+                sent = true;
+            }
+            if (microbitB_Char) {
+                microbitB_Char.writeValue(data).catch(e => console.error("B寫入失敗", e));
+                sent = true;
+            }
+
+            if (sent) {
+                // 將換行符號 \n 替換為 \r\n 方便在畫面上顯示
+                const displayCmd = commandStr.replace('\n', '\\n');
+                logMsg(`辨認結果：【${className}】 發送指令 -> ${displayCmd}`);
+            } else {
+                logMsg(`⚠️ 辨認出【${className}】，但尚未連接任何 Microbit!`, true);
+            }
+        }
+
+        /**
+         * 模型下載邏輯 (.json 檔案)
+         */
+        document.getElementById('btnDownload').addEventListener('click', () => {
+            if (!classifier || classifier.getNumClasses() === 0) {
+                alert("目前沒有學習任何相片，無法下載！");
+                return;
+            }
+            
+            // 取得 TensorFlow 內的 Dataset
+            const dataset = classifier.getClassifierDataset();
+            const datasetObj = {};
+            
+            Object.keys(dataset).forEach((key) => {
+                const data = dataset[key].dataSync();
+                datasetObj[key] = {
+                    data: Array.from(data),
+                    shape: dataset[key].shape
+                };
+            });
+            
+            const saveData = {
+                dataset: datasetObj,
+                classData: classData
+            };
+            
+            const jsonStr = JSON.stringify(saveData);
+            const blob = new Blob([jsonStr], {type: "application/json"});
+            const url = URL.createObjectURL(blob);
+            
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = "智能污衣籃_AI學習結果.json";
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+            
+            logMsg("💾 已成功下載 AI 學習結果", true);
+        });
+
+        /**
+         * 模型上載邏輯 (.json 檔案)
+         */
+        const uploadInput = document.getElementById('uploadInput');
+        document.getElementById('btnUpload').addEventListener('click', () => {
+            uploadInput.click();
+        });
+
+        uploadInput.addEventListener('change', (event) => {
+            const file = event.target.files[0];
+            if (!file) return;
+            
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                try {
+                    const parsed = JSON.parse(e.target.result);
+                    const datasetObj = parsed.dataset;
+                    
+                    // 清除原本的學習資料
+                    classifier.clearAllClasses();
+                    
+                    const tensorObj = {};
+                    Object.keys(datasetObj).forEach((key) => {
+                        tensorObj[key] = tf.tensor(datasetObj[key].data, datasetObj[key].shape);
+                    });
+                    
+                    // 重新寫入分類器
+                    classifier.setClassifierDataset(tensorObj);
+                    
+                    // 更新介面數量與狀態
+                    if (parsed.classData) {
+                        classData = parsed.classData;
+                        classData.forEach(c => {
+                            c.similarity = 0; // 重置相似度
+                            updateClassUI(c.id);
+                        });
+                    }
+                    
+                    logMsg("📂 成功載入 AI 學習結果！", true);
+                    alert("成功載入 AI 學習結果！");
+                } catch (err) {
+                    console.error("模型載入失敗", err);
+                    alert("載入失敗！檔案格式不正確或已損壞。");
+                }
+            };
+            reader.readAsText(file);
+            event.target.value = ''; // 允許重複選取相同檔案
+        });
+
+        // 系統啟動流程
+        initUI();
+        setupWebcam().then(() => {
+            initML();
+        });
+
+    </script>
+</body>
+</html>
